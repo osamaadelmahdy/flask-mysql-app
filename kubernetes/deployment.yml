@@ -1,0 +1,80 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: flask-app
+spec:
+  selector:
+    matchLabels:
+      app: flask-app
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: flask-app
+    spec:
+      containers:
+        - name: flask-app
+          image: 895168343419.dkr.ecr.us-east-1.amazonaws.com/my-flask-repo:latest
+          ports:
+            - containerPort: 5000
+          env:
+            - name: MYSQL_USER
+              valueFrom:
+                configMapKeyRef:
+                  name: flask-app-config
+                  key: MYSQL_USER
+            - name: MYSQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mysql-secret
+                  key: MYSQL_PASSWORD
+            - name: MYSQL_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: flask-app-config
+                  key: MYSQL_HOST
+            - name: MYSQL_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: flask-app-config
+                  key: MYSQL_PORT
+            - name: MYSQL_DATABASE
+              valueFrom:
+                configMapKeyRef:
+                  name: flask-app-config
+                  key: MYSQL_DATABASE
+      imagePullSecrets:
+        - name: regcred
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: flask-app-config
+data:
+  MYSQL_USER: root
+  MYSQL_HOST: mysql-service
+  MYSQL_PORT: "3306"
+  MYSQL_DATABASE: devopsroles
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: mysql-secret
+type: Opaque
+data:
+  MYSQL_PASSWORD: cm9vdAo= # base64-encoded value of 'root'
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: flask-app
+spec:
+  selector:
+    app: flask-app
+  type: LoadBalancer
+  ports:
+    - name: http
+      port: 5000
+      targetPort: 5000
