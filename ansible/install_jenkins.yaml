@@ -1,0 +1,201 @@
+---
+- hosts: all
+  gather_facts: false
+  become: true
+  vars:
+    jenkins_admin_username: admin
+    jenkins_admin_password: 1234
+    admin_username: admin
+    admin_password: 1234
+    jenkins_url: http://localhost:8080
+    groovy_version: "4.0.9"
+    ansible_python_interpreter: /usr/bin/python
+    jenkins_home: "/var/lib/jenkins"
+    jenkins_plugins:
+      - git
+      - pipeline
+  tasks:
+    - name: Update system packages
+      yum:
+        name: "*"
+        state: latest
+      become: true
+
+    - name: Install OpenJDK 11
+      become: true
+      command: amazon-linux-extras install java-openjdk11 -y
+
+    - name: Add Jenkins repository
+      yum_repository:
+        name: jenkins
+        description: Jenkins
+        baseurl: http://pkg.jenkins-ci.org/redhat-stable
+        gpgcheck: yes
+        gpgkey: https://pkg.jenkins.io/redhat-stable/jenkins.io.key
+        enabled: yes
+      tags: jenkins
+
+    - name: Install Jenkins
+      yum:
+        name: jenkins
+        state: present
+      tags: jenkins
+
+    - name: Start Jenkins service
+      service:
+        name: jenkins
+        state: started
+        enabled: yes
+      tags: jenkins
+
+    # - name: Wait for Jenkins to start
+    #   wait_for:
+    #     host: localhost
+    #     port: 8080
+    #     delay: 1
+    #     timeout: 60
+    #   tags: jenkins
+
+    - name: Install Groovy
+      yum:
+        name:
+          - groovy
+        state: present
+
+    - name: Create Jenkins post-init script directory
+      file:
+        path: /var/lib/jenkins/init.groovy.d
+        state: directory
+        mode: 0755
+        owner: jenkins
+        group: jenkins
+
+    - name: Add Jenkins post-init script
+      copy:
+        content: |
+          import jenkins.*
+          import jenkins.model.*
+          import hudson.security.*
+          import jenkins.security.*
+          import java.util.logging.Logger
+
+          def logger = Logger.getLogger("")
+          def instance = Jenkins.getInstance()
+
+          // Disable Setup Wizard
+          instance.setInstallState(Jenkins.InstallState.INITIAL_SETUP_COMPLETED)
+
+          // Set up security realm
+          def realm = new HudsonPrivateSecurityRealm(false)
+          realm.createAccount("admin", "password")
+          instance.setSecurityRealm(realm)
+
+          // Set up authorization strategy
+          def strategy = new FullControlOnceLoggedInAuthorizationStrategy()
+          strategy.setAllowAnonymousRead(false)
+          instance.setAuthorizationStrategy(strategy)
+
+          // Install plugins
+          def githubPlugin = instance.getPluginManager().getPlugin("github")
+          if (githubPlugin == null) {
+              logger.info("Installing GitHub plugin...")
+              instance.getPluginManager().installPlugin("github")
+              logger.info("GitHub plugin installed.")
+          }
+
+          def pipelinePlugin = instance.getPluginManager().getPlugin("workflow-aggregator")
+          if (pipelinePlugin == null) {
+              logger.info("Installing Pipeline plugin...")
+              instance.getPluginManager().installPlugin("workflow-aggregator")
+              logger.info("Pipeline plugin installed.")
+          }
+          def pluginManager = instance.getPluginManager()
+          def suggestedPlugins = pluginManager.getSuggestedPlugins()
+
+          if (suggestedPlugins) {
+            logger.info("Installing suggested plugins...")
+            suggestedPlugins.each { plugin ->
+              logger.info("Installing ${plugin.name}...")
+              pluginManager.installPlugin(plugin.name)
+              logger.info("${plugin.name} installed.")
+            }
+          }
+          // Save changes
+          instance.save()
+
+        dest: /var/lib/jenkins/init.groovy.d/admin-user.groovy
+        mode: 0644
+        owner: jenkins
+        group: jenkins
+
+    - name: Ensure a list of yum packages are installed
+      yum:
+        name: "{{ packages }}"
+        state: latest
+        update_cache: yes
+      vars:
+        packages:
+          - python-pip
+          - yum-utils
+          - device-mapper-persistent-data
+          - lvm2
+          - amazon-linux-extras
+
+    - name: Add extras repository
+      shell: yum-config-manager --enable extras
+
+    - name: Install docker-ce (centos) via amazon-linux-extras packages
+      shell: "amazon-linux-extras install docker=18.06.1 -y"
+
+    - name: Enable Docker CE service at startup
+      service:
+        name: docker
+        state: started
+        enabled: yes
+    - name: Add ec2-user to docker group
+      user:
+        name: ec2-user
+        groups: docker
+        append: yes
+    - name: Add Jenkins user to docker group
+      user:
+        name: jenkins
+        groups: docker
+        append: yes
+    - name: Set Docker socket permissions for Jenkins user
+      file:
+        path: /var/run/docker.sock
+        owner: root
+        group: docker
+        mode: "0660"
+    - name: Restart Jenkins
+      service:
+        name: jenkins
+        state: restarted
+    - name: Install Git
+      yum:
+        name: git
+        state: present
+
+    - name: Download kubectl
+      command: "curl -LO https://storage.googleapis.com/kubernetes-release/release/$(curl -s https://storage.googleapis.com/kubernetes-release/release/stable.txt)/bin/linux/amd64/kubectl && chmod +x kubectl && sudo mv kubectl /usr/local/bin/"
+
+    - name: Configure kubeconfig for EKS cluster
+      command: "aws eks update-kubeconfig --region us-east-1 --name my-eks-cluster"
+
+    - name: Get public IP address
+      uri:
+        url: "http://checkip.amazonaws.com"
+        return_content: yes
+      register: public_ip
+
+    - name: Print public IP address
+      debug:
+        var: public_ip.content
+
+    # - name: Set JAVA_OPTS environment variable
+    #   become: yes
+    #   become_user: jenkins
+    #   environment:
+    #     JAVA_OPTS: "-Djenkins.install.runSetupWizard=false"
+    #   command: /path/to/jenkins/startup_script.sh
