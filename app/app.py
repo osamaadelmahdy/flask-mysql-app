@@ -9,14 +9,16 @@ load_dotenv()
 app = Flask(__name__)
 
 config = {
-        'user': os.getenv('MYSQL_USER'),
-        'password': os.getenv('MYSQL_PASSWORD'),
-        'host': os.getenv('MYSQL_HOST'),
-        'port': os.getenv('MYSQL_PORT'),
-        'database': os.getenv('MYSQL_DATABASE'),
-        'auth_plugin':'mysql_native_password'
-    }
+    'user': os.getenv('MYSQL_USER'),
+    'password': os.getenv('MYSQL_PASSWORD'),
+    'host': os.getenv('MYSQL_HOST'),
+    'port': os.getenv('MYSQL_PORT'),
+    'database': os.getenv('MYSQL_DATABASE'),
+    'auth_plugin': 'mysql_native_password'
+}
 print(config)
+
+
 def test_table() -> List[Dict]:
     # config = {
     #     'user': 'root',
@@ -34,12 +36,29 @@ def test_table() -> List[Dict]:
 
     return results
 
+
 @app.route('/')
 def main():
     return render_template('index.html')
+
+
 @app.route('/dumps')
 def index() -> str:
     return json.dumps({'test_table': test_table()})
+
+
+@app.route('/healthz')
+def healthz() -> str:
+    return 'OK'
+
+
+@app.route('/readyz')
+def readyz() -> str:
+    try:
+        test_table()
+        return 'OK'
+    except:
+        return 'ERROR'
 
 
 if __name__ == '__main__':

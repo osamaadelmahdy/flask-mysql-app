@@ -43,6 +43,18 @@ spec:
                 configMapKeyRef:
                   name: flask-app-config
                   key: MYSQL_DATABASE
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 5000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 5000
+            initialDelaySeconds: 5
+            periodSeconds: 10
       imagePullSecrets:
         - name: regcred
 ---
